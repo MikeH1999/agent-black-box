@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent } from "react";
+import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { ConversationImage, ConversationMessage, ConversationSnapshot, FilecoinReceipt } from "@/lib/capsules/schema";
 import {
   connectBrowserWallet,
@@ -258,6 +258,17 @@ export function AgentConsole() {
     setIsDraggingFiles(false);
     void addImageFiles(Array.from(event.dataTransfer.files));
     setStatus("File attached");
+  }
+
+  function submitOnEnter(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    if (!isBusy) {
+      void runAction(sendMessage, "chat");
+    }
   }
 
   function saveAiConfig() {
@@ -650,6 +661,7 @@ export function AgentConsole() {
                 onDragLeave={leaveDraggedFiles}
                 onDragOver={dragFilesOverInput}
                 onDrop={dropFilesOnInput}
+                onKeyDown={submitOnEnter}
                 onPaste={pasteImages}
                 placeholder="Type here, paste a screenshot, or drop image files into this box."
               />
