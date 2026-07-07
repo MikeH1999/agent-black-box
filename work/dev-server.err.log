@@ -1,0 +1,69 @@
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>) {
+  digest: '3073979560'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>)
+    at stringify (<anonymous>) {
+  digest: '3866937260'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>)
+    at stringify (<anonymous>) {
+  digest: '3866937260'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>)
+    at stringify (<anonymous>) {
+  digest: '3866937260'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>) {
+  digest: '3073979560'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>) {
+  digest: '3073979560'
+}
+ ⨯ [TypeError: __webpack_modules__[moduleId] is not a function] {
+  digest: '1911394753'
+}
+ ⨯ Error: Could not find the module "C:\Users\mike\Documents\Codex\2026-06-11\new-chat-3\node_modules\next\dist\next-devtools\userspace\app\segment-explorer-node.js#SegmentViewNode" in the React Client Manifest. This is probably a bug in the React Server Components bundler.
+    at stringify (<anonymous>) {
+  digest: '3073979560'
+}
+[TypeError: __webpack_modules__[moduleId] is not a function]
+ ⨯ [TypeError: __webpack_modules__[moduleId] is not a function]
+ ⨯ [TypeError: __webpack_modules__[moduleId] is not a function] {
+  page: '/'
+}
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\DumpStack.log.tmp'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\System Volume Information'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\swapfile.sys'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\DumpStack.log.tmp'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\System Volume Information'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (initial scan): Error: EINVAL: invalid argument, lstat 'C:\swapfile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'
+Watchpack Error (stats): Error: EINVAL: invalid argument, lstat 'C:\pagefile.sys'

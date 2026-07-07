@@ -1,0 +1,33 @@
+{
+  "name": "agent-black-box",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "check:env": "tsx scripts/check-env.ts",
+    "check:filecoin": "tsx scripts/check-filecoin.ts",
+    "prepare:filecoin": "tsx scripts/prepare-filecoin.ts",
+    "test:roundtrip": "tsx scripts/filecoin-roundtrip.ts",
+    "test:workflow": "tsx scripts/agent-workflow.ts",
+    "restore:trace": "tsx scripts/restore-trace.ts"
+  },
+  "dependencies": {
+    "@filoz/synapse-sdk": "^1.0.1",
+    "next": "^15.3.4",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "viem": "^2.54.5",
+    "zod": "^3.25.64"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.6",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
