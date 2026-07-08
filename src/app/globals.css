@@ -98,6 +98,15 @@ button.foc-button img {
   flex: 0 0 auto;
 }
 
+button.foc-button span {
+  color: inherit;
+  font-weight: 800;
+}
+
+button.primary.foc-button span {
+  color: white;
+}
+
 button.danger-button {
   border-color: rgba(169, 53, 43, 0.62);
   background: rgba(169, 53, 43, 0.1);
