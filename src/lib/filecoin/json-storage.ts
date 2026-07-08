@@ -6,9 +6,11 @@ const textDecoder = new TextDecoder();
 const datasetMetadata = {
   app: "agent-black-box"
 };
-const configuredProviderIds = parseProviderIds(
-  process.env.NEXT_PUBLIC_FOC_PROVIDER_IDS ?? (process.env.NEXT_PUBLIC_FILECOIN_NETWORK === "mainnet" ? "" : "2,9")
+const configuredProviderIds = selectUploadProviderIds(
+  parseProviderIds(process.env.NEXT_PUBLIC_FOC_PROVIDER_IDS ?? (process.env.NEXT_PUBLIC_FILECOIN_NETWORK === "mainnet" ? "" : "9"))
 );
+const uploadTimeoutMs = parsePositiveInteger(process.env.NEXT_PUBLIC_FOC_UPLOAD_TIMEOUT_MS, 180_000);
+const downloadTimeoutMs = parsePositiveInteger(process.env.NEXT_PUBLIC_FOC_DOWNLOAD_TIMEOUT_MS, 60_000);
 
 export type JsonUploadLifecycleEvent =
   | {
@@ -100,6 +102,7 @@ export async function uploadJsonPayload(
           metadata: datasetMetadata
         });
   await prepareStorageForBytes(synapse, BigInt(data.byteLength), contexts);
+  const uploadTimeout = createTimeoutSignal(uploadTimeoutMs, "FOC upload timed out. Try again or choose another provider.");
   let submittedResolved = false;
   let resolveSubmitted: ((receipt: JsonUploadReceipt) => void) | null = null;
   let rejectSubmitted: ((error: Error) => void) | null = null;
@@ -110,6 +113,7 @@ export async function uploadJsonPayload(
 
   const uploadPromise = synapse.storage.upload(data, {
     ...(contexts == null ? {} : { contexts }),
+    signal: uploadTimeout.signal,
     metadata: datasetMetadata,
     pieceMetadata: metadata,
     callbacks: {
@@ -179,7 +183,7 @@ export async function uploadJsonPayload(
         });
       }
     }
-  });
+  }).finally(uploadTimeout.cancel);
 
   const fullReceiptPromise = uploadPromise.then((result) => ({
     pieceCid: result.pieceCid.toString(),
@@ -227,7 +231,7 @@ export async function uploadJsonPayload(
 }
 
 export async function downloadJsonPayload(synapse: Synapse, pieceCid: string): Promise<JsonDownloadResult> {
-  const data = await synapse.storage.download({ pieceCid });
+  const data = await withTimeout(synapse.storage.download({ pieceCid }), downloadTimeoutMs, "FOC restore timed out. Try again in a moment.");
   const text = textDecoder.decode(data);
 
   return {
@@ -243,4 +247,45 @@ function parseProviderIds(value: string) {
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
     .map((item) => BigInt(item));
+}
+
+function selectUploadProviderIds(providerIds: bigint[]) {
+  if (providerIds.length <= 1) {
+    return providerIds;
+  }
+
+  const preferredCalibrationProvider = providerIds.find((providerId) => providerId === 9n);
+  return [preferredCalibrationProvider ?? providerIds[0]];
+}
+
+function parsePositiveInteger(value: string | undefined, fallback: number) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function createTimeoutSignal(milliseconds: number, reason: string) {
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => {
+    controller.abort(new Error(reason));
+  }, milliseconds);
+
+  return {
+    signal: controller.signal,
+    cancel() {
+      globalThis.clearTimeout(timeout);
+    }
+  };
+}
+
+function withTimeout<T>(promise: Promise<T>, milliseconds: number, reason: string) {
+  let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeout = globalThis.setTimeout(() => reject(new Error(reason)), milliseconds);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timeout != null) {
+      globalThis.clearTimeout(timeout);
+    }
+  });
 }
