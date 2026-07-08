@@ -12,6 +12,18 @@ import { downloadJsonPayload, uploadJsonPayload, type JsonUploadLifecycleEvent }
 const targetNetwork = process.env.NEXT_PUBLIC_FILECOIN_NETWORK === "mainnet" ? mainnet : calibration;
 const source = process.env.NEXT_PUBLIC_FILECOIN_SOURCE ?? "agent-black-box";
 
+type MetaMaskChainParameters = {
+  chainId: Hex;
+  chainName: string;
+  nativeCurrency: {
+    name: string;
+    symbol: string;
+    decimals: number;
+  };
+  rpcUrls: string[];
+  blockExplorerUrls?: string[];
+};
+
 export type BrowserWalletState = {
   account: Address;
   chain: {
@@ -228,17 +240,7 @@ async function ensureTargetChain(provider: EIP1193Provider) {
     if (isUnknownChainError(error)) {
       await provider.request({
         method: "wallet_addEthereumChain",
-        params: [
-          {
-            chainId: targetChainId,
-            chainName: targetNetwork.name,
-            nativeCurrency: targetNetwork.nativeCurrency,
-            rpcUrls: targetNetwork.rpcUrls.default.http,
-            blockExplorerUrls: targetNetwork.blockExplorers?.default?.url
-              ? [targetNetwork.blockExplorers.default.url]
-              : undefined
-          }
-        ]
+        params: [getMetaMaskChainParameters(targetChainId)]
       });
       return;
     }
@@ -249,6 +251,36 @@ async function ensureTargetChain(provider: EIP1193Provider) {
 
 function toHexChainId(chainId: number) {
   return `0x${chainId.toString(16)}` as Hex;
+}
+
+function getMetaMaskChainParameters(chainId: Hex): MetaMaskChainParameters {
+  const rpcUrls = targetNetwork.rpcUrls.default.http.filter(isHttpsUrl);
+  const blockExplorerUrl = targetNetwork.blockExplorers?.default?.url;
+  const blockExplorerUrls = blockExplorerUrl != null && isHttpsUrl(blockExplorerUrl) ? [blockExplorerUrl] : undefined;
+
+  if (rpcUrls.length === 0) {
+    throw new Error(`No HTTPS RPC URL is configured for ${targetNetwork.name}.`);
+  }
+
+  return {
+    chainId,
+    chainName: targetNetwork.id === mainnet.id ? "Filecoin Mainnet" : "Filecoin Calibration",
+    nativeCurrency: {
+      name: "Filecoin",
+      symbol: targetNetwork.id === mainnet.id ? "FIL" : "tFIL",
+      decimals: 18
+    },
+    rpcUrls,
+    ...(blockExplorerUrls == null ? {} : { blockExplorerUrls })
+  };
+}
+
+function isHttpsUrl(value: string) {
+  try {
+    return new URL(value).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function isUnknownChainError(error: unknown) {

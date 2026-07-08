@@ -851,6 +851,57 @@ h1 {
   min-height: 46px;
 }
 
+.restore-progress {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(8, 127, 109, 0.24);
+  border-radius: 8px;
+  background: rgba(8, 127, 109, 0.07);
+  padding: 12px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.restore-progress > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.restore-progress span {
+  color: var(--accent);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.restore-progress strong {
+  font-size: 0.86rem;
+}
+
+.restore-progress p,
+.restore-progress small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.restore-progress-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(8, 127, 109, 0.16);
+}
+
+.restore-progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
 .uploaded-records {
   display: grid;
   gap: 8px;

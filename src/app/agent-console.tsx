@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import type { ConversationImage, ConversationMessage, ConversationSnapshot, FilecoinReceipt } from "@/lib/capsules/schema";
 import {
   connectBrowserWallet,
@@ -40,6 +40,15 @@ type UploadLifecycleEvent = {
   event: JsonUploadLifecycleEvent;
 };
 
+type RestoreProgress = {
+  pieceCid: string;
+  step: string;
+  detail: string;
+  phaseIndex: number;
+  startedAt: number;
+  finishedAt: number | null;
+};
+
 type AiModelConfig = {
   id: string;
   baseUrl: string;
@@ -60,6 +69,7 @@ const aiModelConfigKey = "agent-black-box:ai-model-configs";
 const activeAiModelConfigKey = "agent-black-box:active-ai-model-config";
 
 export function AgentConsole() {
+  const chatWindowRef = useRef<HTMLDivElement | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
   const [lastPersistedMessageSignature, setLastPersistedMessageSignature] = useState("");
@@ -73,6 +83,8 @@ export function AgentConsole() {
   const [uploadedRecordsPage, setUploadedRecordsPage] = useState(0);
   const [uploadedRecordsPageSize, setUploadedRecordsPageSize] = useState(5);
   const [restorePieceCid, setRestorePieceCid] = useState("");
+  const [restoreProgress, setRestoreProgress] = useState<RestoreProgress | null>(null);
+  const [restoreTick, setRestoreTick] = useState(0);
   const [contextLabel, setContextLabel] = useState<string | null>(null);
   const [sealedReceipt, setSealedReceipt] = useState<FilecoinReceipt | null>(null);
   const [uploadEvents, setUploadEvents] = useState<UploadLifecycleEvent[]>([]);
@@ -84,7 +96,7 @@ export function AgentConsole() {
   const [busyStartedAt, setBusyStartedAt] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [wallet, setWallet] = useState<BrowserWalletState | null>(null);
-  const [copiedValue, setCopiedValue] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [aiConfigs, setAiConfigs] = useState<AiModelConfig[]>([]);
   const [activeAiConfigId, setActiveAiConfigId] = useState<string | null>(null);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -105,14 +117,18 @@ export function AgentConsole() {
       return;
     }
 
-    const records = loadBlackBoxIndex(walletAccount);
-    const localDrafts = records.filter((record) => record.pieceCid == null);
-    setUploadedRecords(records.filter((record) => record.pieceCid != null));
-    setBlackBoxes((current) => {
-      const restoredOrCurrent = current.filter((record) => record.pieceCid != null);
-      const restoredIds = new Set(restoredOrCurrent.map((record) => record.id));
-      return [...restoredOrCurrent, ...localDrafts.filter((record) => !restoredIds.has(record.id))].slice(0, 12);
-    });
+    applyWalletRecords(loadBlackBoxIndex(walletAccount));
+    void fetch(`/api/local-state/wallet-records?wallet=${encodeURIComponent(walletAccount)}`)
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { records?: BlackBoxRecord[] } | null) => {
+        if (data?.records == null) {
+          return;
+        }
+
+        const merged = mergeRecords(loadBlackBoxIndex(walletAccount), data.records);
+        writeBlackBoxIndex(walletAccount, merged);
+        applyWalletRecords(merged);
+      });
   }, [walletAccount]);
 
   useEffect(() => {
@@ -123,6 +139,17 @@ export function AgentConsole() {
       setAiConfigs(parsedConfigs);
       setActiveAiConfigId(storedActiveConfigId ?? parsedConfigs[0]?.id ?? null);
     }
+    void fetch("/api/local-state/models")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { configs?: AiModelConfig[]; activeConfigId?: string | null } | null) => {
+        if (data?.configs == null || data.configs.length === 0) {
+          return;
+        }
+
+        setAiConfigs(data.configs);
+        setActiveAiConfigId(data.activeConfigId ?? data.configs[0]?.id ?? null);
+        persistAiModelState(data.configs, data.activeConfigId ?? data.configs[0]?.id ?? null);
+      });
   }, []);
 
   useEffect(() => {
@@ -136,6 +163,30 @@ export function AgentConsole() {
 
     return () => window.clearInterval(interval);
   }, [busyStartedAt]);
+
+  useEffect(() => {
+    const chatWindow = chatWindowRef.current;
+    if (chatWindow == null) {
+      return;
+    }
+
+    chatWindow.scrollTo({
+      top: chatWindow.scrollHeight,
+      behavior: "smooth"
+    });
+  }, [messages, pendingAssistantId]);
+
+  useEffect(() => {
+    if (restoreProgress == null || restoreProgress.finishedAt != null) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      setRestoreTick((current) => current + 1);
+    }, 1000);
+
+    return () => window.clearInterval(interval);
+  }, [restoreProgress]);
 
   const isBusy = activeAction != null;
   const isUploadBusy = activeAction === "upload";
@@ -151,10 +202,22 @@ export function AgentConsole() {
   );
   const statusDetail = getStatusDetail(activeAction);
   const activeAiConfig = aiConfigs.find((config) => config.id === activeAiConfigId) ?? null;
+  const restoreElapsedSeconds = getRestoreElapsedSeconds(restoreProgress, restoreTick);
+  const restoreProgressPercent = restoreProgress == null ? 0 : Math.round((restoreProgress.phaseIndex / 4) * 100);
 
   useEffect(() => {
     setUploadedRecordsPage((current) => Math.min(current, uploadedRecordsPageCount - 1));
   }, [uploadedRecordsPageCount]);
+
+  function applyWalletRecords(records: BlackBoxRecord[]) {
+    const localDrafts = records.filter((record) => record.pieceCid == null);
+    setUploadedRecords(records.filter((record) => record.pieceCid != null));
+    setBlackBoxes((current) => {
+      const restoredOrCurrent = current.filter((record) => record.pieceCid != null);
+      const restoredIds = new Set(restoredOrCurrent.map((record) => record.id));
+      return [...restoredOrCurrent, ...localDrafts.filter((record) => !restoredIds.has(record.id))].slice(0, 12);
+    });
+  }
 
   async function connectWallet() {
     setStatus("Connecting MetaMask");
@@ -342,8 +405,7 @@ export function AgentConsole() {
     const nextConfigs = [config, ...aiConfigs].slice(0, 12);
     setAiConfigs(nextConfigs);
     setActiveAiConfigId(config.id);
-    window.localStorage.setItem(aiModelConfigKey, JSON.stringify(nextConfigs));
-    window.localStorage.setItem(activeAiModelConfigKey, config.id);
+    persistAiModelState(nextConfigs, config.id);
     setAiForm({ baseUrl: "", apiKey: "", model: "" });
     setAvailableModels([]);
     setError(null);
@@ -392,7 +454,7 @@ export function AgentConsole() {
 
   function useAiConfig(config: AiModelConfig) {
     setActiveAiConfigId(config.id);
-    window.localStorage.setItem(activeAiModelConfigKey, config.id);
+    persistAiModelState(aiConfigs, config.id);
     setStatus(`Using ${config.model}`);
   }
 
@@ -401,12 +463,7 @@ export function AgentConsole() {
     const nextActiveId = activeAiConfigId === id ? nextConfigs[0]?.id ?? null : activeAiConfigId;
     setAiConfigs(nextConfigs);
     setActiveAiConfigId(nextActiveId);
-    window.localStorage.setItem(aiModelConfigKey, JSON.stringify(nextConfigs));
-    if (nextActiveId == null) {
-      window.localStorage.removeItem(activeAiModelConfigKey);
-    } else {
-      window.localStorage.setItem(activeAiModelConfigKey, nextActiveId);
-    }
+    persistAiModelState(nextConfigs, nextActiveId);
   }
 
   function removeAttachment(id: string) {
@@ -505,11 +562,40 @@ export function AgentConsole() {
       throw new Error("Enter a conversation PieceCID to restore.");
     }
 
+    const startedAt = Date.now();
+    setRestoreProgress({
+      pieceCid,
+      step: "Preparing wallet",
+      detail: "Checking wallet permission and Filecoin network.",
+      phaseIndex: 1,
+      startedAt,
+      finishedAt: null
+    });
     setStatus("Restoring black box");
     setError(null);
 
     const storageAccount = await ensureWalletStorageAccount();
+    setRestoreProgress((current) =>
+      current == null
+        ? current
+        : {
+            ...current,
+            step: "Downloading from FOC",
+            detail: "Fetching the conversation capsule by PieceCID.",
+            phaseIndex: 2
+          }
+    );
     const restored = await restoreWalletBackedConversation(pieceCid);
+    setRestoreProgress((current) =>
+      current == null
+        ? current
+        : {
+            ...current,
+            step: "Parsing capsule",
+            detail: "Validating the conversation payload and note.",
+            phaseIndex: 3
+          }
+    );
     setMessages(restored.snapshot.messages);
     setLastPersistedMessageSignature(restored.snapshot.messages.map((message) => message.id).join("|"));
     setNote(restored.snapshot.note);
@@ -534,6 +620,17 @@ export function AgentConsole() {
       copies: [],
       failedAttempts: []
     }), storageAccount);
+    setRestoreProgress((current) =>
+      current == null
+        ? current
+        : {
+            ...current,
+            step: "Context loaded",
+            detail: "Conversation restored and ready to use.",
+            phaseIndex: 4,
+            finishedAt: Date.now()
+          }
+    );
     setStatus("Context restored");
   }
 
@@ -600,11 +697,11 @@ export function AgentConsole() {
     }
   }
 
-  async function copyToClipboard(value: string) {
+  async function copyToClipboard(value: string, key: string) {
     await navigator.clipboard.writeText(value);
-    setCopiedValue(value);
+    setCopiedKey(key);
     window.setTimeout(() => {
-      setCopiedValue((current) => (current === value ? null : current));
+      setCopiedKey((current) => (current === key ? null : current));
     }, 1400);
   }
 
@@ -737,7 +834,7 @@ export function AgentConsole() {
             </aside>
 
             <div className="conversation-main">
-              <div className="chat-window" aria-label="Conversation">
+              <div className="chat-window" aria-label="Conversation" ref={chatWindowRef}>
                 {messages.length === 0 ? (
                   <div className="chat-empty">
                     <p>Start a short conversation. When it becomes useful, save it as a black box and optionally upload it to FOC.</p>
@@ -885,6 +982,19 @@ export function AgentConsole() {
             </button>
           </div>
           <p className="helper-text">Restore a conversation black box by PieceCID, then continue with it as context.</p>
+          {restoreProgress != null ? (
+            <div className="restore-progress" aria-label="Restore progress">
+              <div>
+                <span>{restoreProgress.step}</span>
+                <strong>{restoreProgressPercent}%</strong>
+              </div>
+              <div className="restore-progress-bar">
+                <span style={{ width: `${restoreProgressPercent}%` }} />
+              </div>
+              <p>{restoreProgress.detail}</p>
+              <small>Restore elapsed: {formatElapsed(restoreElapsedSeconds)}</small>
+            </div>
+          ) : null}
           {uploadedRecords.length > 0 ? (
             <div className="uploaded-records" aria-label="Uploaded PieceCID records">
               <div className="uploaded-records-heading">
@@ -928,7 +1038,12 @@ export function AgentConsole() {
                         {record.messageCount} messages / {record.imageCount} images
                       </small>
                     </div>
-                    <CopyableCode value={record.pieceCid} copied={copiedValue === record.pieceCid} onCopy={copyToClipboard} />
+                    <CopyableCode
+                      value={record.pieceCid}
+                      copyKey={`uploaded-${record.id}`}
+                      copied={copiedKey === `uploaded-${record.id}`}
+                      onCopy={copyToClipboard}
+                    />
                     <button type="button" onClick={() => void restoreContextNow(record.pieceCid ?? "")}>
                       Restore
                     </button>
@@ -966,7 +1081,7 @@ export function AgentConsole() {
             <div className="seal-progress" aria-label="FOC upload monitor">
               <div>
                 <span>FOC upload monitor</span>
-                <strong>{formatElapsed(elapsedSeconds)}</strong>
+                <strong>Upload elapsed: {formatElapsed(elapsedSeconds)}</strong>
               </div>
               {uploadEvents.length > 0 ? (
                 <div className="upload-events">
@@ -978,7 +1093,12 @@ export function AgentConsole() {
               {sealedReceipt != null ? (
                 <div className="run-summary">
                   <span>{sealedReceipt.complete === false ? "Message submitted" : "Stored receipt"}</span>
-                  <CopyableCode value={sealedReceipt.pieceCid} copied={copiedValue === sealedReceipt.pieceCid} onCopy={copyToClipboard} />
+                  <CopyableCode
+                    value={sealedReceipt.pieceCid}
+                    copyKey={`receipt-${sealedReceipt.pieceCid}`}
+                    copied={copiedKey === `receipt-${sealedReceipt.pieceCid}`}
+                    onCopy={copyToClipboard}
+                  />
                 </div>
               ) : null}
             </div>
@@ -1026,7 +1146,12 @@ export function AgentConsole() {
                       </>
                     ) : (
                       <>
-                        <CopyableCode value={record.pieceCid} copied={copiedValue === record.pieceCid} onCopy={copyToClipboard} />
+                        <CopyableCode
+                          value={record.pieceCid}
+                          copyKey={`memory-${record.id}`}
+                          copied={copiedKey === `memory-${record.id}`}
+                          onCopy={copyToClipboard}
+                        />
                         <small>Local conversation cache removed after upload.</small>
                       </>
                     )}
@@ -1113,8 +1238,47 @@ function loadBlackBoxIndex(account: string) {
   return stored == null ? [] : (JSON.parse(stored) as BlackBoxRecord[]);
 }
 
+function mergeRecords(primary: BlackBoxRecord[], secondary: BlackBoxRecord[]) {
+  const records = new Map<string, BlackBoxRecord>();
+  for (const record of [...secondary, ...primary]) {
+    records.set(record.id, record);
+  }
+
+  return Array.from(records.values()).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 24);
+}
+
 function writeBlackBoxIndex(account: string, records: BlackBoxRecord[]) {
   window.localStorage.setItem(getBlackBoxIndexKey(account), JSON.stringify(records));
+  void fetch("/api/local-state/wallet-records", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      wallet: account,
+      records
+    })
+  });
+}
+
+function persistAiModelState(configs: AiModelConfig[], activeConfigId: string | null) {
+  window.localStorage.setItem(aiModelConfigKey, JSON.stringify(configs));
+  if (activeConfigId == null) {
+    window.localStorage.removeItem(activeAiModelConfigKey);
+  } else {
+    window.localStorage.setItem(activeAiModelConfigKey, activeConfigId);
+  }
+
+  void fetch("/api/local-state/models", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      configs,
+      activeConfigId
+    })
+  });
 }
 
 function getSnapshotStorageKey(account: string, id: string) {
@@ -1213,6 +1377,17 @@ function formatElapsed(seconds: number) {
   return `${minutes}m ${remainingSeconds.toString().padStart(2, "0")}s`;
 }
 
+function getRestoreElapsedSeconds(progress: RestoreProgress | null, tick: number) {
+  void tick;
+
+  if (progress == null) {
+    return 0;
+  }
+
+  const end = progress.finishedAt ?? Date.now();
+  return Math.max(0, Math.floor((end - progress.startedAt) / 1000));
+}
+
 function describeUploadEvent(event: JsonUploadLifecycleEvent) {
   switch (event.type) {
     case "progress":
@@ -1284,17 +1459,19 @@ function getStatusDetail(activeAction: ActiveAction) {
 
 function CopyableCode({
   value,
+  copyKey,
   copied,
   onCopy
 }: {
   value: string;
+  copyKey: string;
   copied: boolean;
-  onCopy: (value: string) => Promise<void>;
+  onCopy: (value: string, key: string) => Promise<void>;
 }) {
   return (
     <div className="copyable-code">
       <code>{value}</code>
-      <button type="button" data-copied={copied} aria-label={copied ? "Copied" : "Copy PieceCID"} onClick={() => onCopy(value)}>
+      <button type="button" data-copied={copied} aria-label={copied ? "Copied" : "Copy PieceCID"} onClick={() => onCopy(value, copyKey)}>
         <span>{copied ? "Copied!" : "Copy"}</span>
       </button>
     </div>
