@@ -174,6 +174,7 @@ export async function sealWalletBackedConversation(
     size: upload.size,
     requestedCopies: upload.requestedCopies,
     complete: upload.complete,
+    chainTransactions: upload.chainTransactions,
     copies: upload.copies,
     failedAttempts: upload.failedAttempts
   };

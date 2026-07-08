@@ -537,6 +537,11 @@ export function AgentConsole() {
       }
     });
 
+    if ((result.receipt.chainTransactions?.length ?? 0) === 0) {
+      setSealedReceipt(null);
+      throw new Error("FOC returned a PieceCID without a chain transaction. The local draft was kept so you can retry.");
+    }
+
     setSealedReceipt(result.receipt);
     setRestorePieceCid(result.receipt.pieceCid);
     upsertBlackBoxRecord(createRecord(snapshotWithCurrentNote, result.receipt));

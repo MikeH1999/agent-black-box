@@ -64,6 +64,11 @@ export type JsonUploadReceipt = {
   size: number;
   requestedCopies: number;
   complete: boolean;
+  chainTransactions: Array<{
+    transaction: string;
+    providerId: string;
+    pieceCid: string;
+  }>;
   copies: Array<{
     providerId: string;
     dataSetId: string;
@@ -104,6 +109,7 @@ export async function uploadJsonPayload(
   await prepareStorageForBytes(synapse, BigInt(data.byteLength), contexts);
   const uploadTimeout = createTimeoutSignal(uploadTimeoutMs, "FOC upload timed out. Try again or choose another provider.");
   let submittedResolved = false;
+  const chainTransactions: JsonUploadReceipt["chainTransactions"] = [];
   let resolveSubmitted: ((receipt: JsonUploadReceipt) => void) | null = null;
   let rejectSubmitted: ((error: Error) => void) | null = null;
   const submittedReceipt = new Promise<JsonUploadReceipt>((resolve, reject) => {
@@ -129,6 +135,13 @@ export async function uploadJsonPayload(
       },
       onPiecesAdded(transaction, providerId, pieces) {
         const submittedPieceCid = pieces[0]?.pieceCid.toString();
+        chainTransactions.push(
+          ...pieces.map((piece) => ({
+            transaction,
+            providerId: providerId.toString(),
+            pieceCid: piece.pieceCid.toString()
+          }))
+        );
         options.onLifecycleEvent?.({
           type: "pieces-added",
           transaction,
@@ -143,6 +156,7 @@ export async function uploadJsonPayload(
             size: data.byteLength,
             requestedCopies: pieces.length,
             complete: false,
+            chainTransactions: [...chainTransactions],
             copies: [],
             failedAttempts: []
           });
@@ -190,6 +204,7 @@ export async function uploadJsonPayload(
     size: result.size,
     requestedCopies: result.requestedCopies,
     complete: result.complete,
+    chainTransactions: [...chainTransactions],
     copies: result.copies.map((copy) => ({
       providerId: copy.providerId.toString(),
       dataSetId: copy.dataSetId.toString(),

@@ -8,6 +8,15 @@ export const filecoinReceiptSchema = z.object({
   size: z.number().int().nonnegative(),
   requestedCopies: z.number().int().nonnegative().optional(),
   complete: z.boolean().optional(),
+  chainTransactions: z
+    .array(
+      z.object({
+        transaction: z.string(),
+        providerId: z.string(),
+        pieceCid: z.string()
+      })
+    )
+    .optional(),
   copies: z
     .array(
       z.object({
