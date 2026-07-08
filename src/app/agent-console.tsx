@@ -530,7 +530,7 @@ export function AgentConsole() {
     setStatus(`Uploading ${record.title}`);
 
     const result = await sealWalletBackedConversation(snapshotWithCurrentNote, {
-      returnAfter: "pieces-added",
+      returnAfter: "complete",
       onUploadLifecycleEvent(event) {
         setUploadEvents((current) => [...current, { id: crypto.randomUUID(), event }].slice(-6));
         setStatus(describeUploadEvent(event));
