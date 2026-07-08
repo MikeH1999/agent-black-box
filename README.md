@@ -1,39 +1,140 @@
 # Agent Black Box
 
-Agent Black Box is a Filecoin Onchain Cloud prototype for saving useful AI conversations as portable, restorable memory capsules.
+Agent Black Box is a Filecoin Onchain Cloud prototype for turning valuable AI conversations into portable, restorable memory capsules.
 
-The product mechanism is no longer a generic file upload or a one-shot question/answer trace. A user has a conversation, saves the conversation as a local black box, adds a note, and then decides whether to seal that exact conversation to Filecoin through Synapse SDK. After upload, the app keeps only the wallet-scoped index record with the note and PieceCID, and removes the full local conversation cache.
+Instead of uploading arbitrary files, the app lets a user chat with an AI model, attach screenshots or images, save a useful exchange as a local black box, add a note, and then decide whether to seal that conversation to Filecoin through Synapse SDK. Once uploaded, the returned PieceCID becomes the handle for restoring that conversation later.
 
-## Current Workflow
+## Product Mechanism
 
-1. Connect MetaMask.
-2. Configure an AI model, or use the local demo reply.
-3. Chat with text and images.
-4. Save the useful conversation as a black box.
-5. Add or edit the note on that saved record.
-6. Upload that single saved record to Filecoin Onchain Cloud.
-7. Copy the returned PieceCID.
-8. Restore the conversation later by PieceCID and use it as context.
+1. A user connects MetaMask.
+2. The user chats with an AI model, including text and images.
+3. The user saves a useful exchange as a black box.
+4. The saved black box appears as a local draft for that wallet.
+5. The user edits the note for that single saved record.
+6. The user optionally uploads that record to Filecoin Onchain Cloud.
+7. The app returns a PieceCID and removes the full local conversation cache.
+8. The sealed conversation can later be restored only by PieceCID.
 
-## Core Features
+The main idea: Filecoin is not just storage behind the scenes. The PieceCID is the product-level memory key.
 
-- Wallet-scoped saved conversations. Saved records only appear after connecting the wallet that created them.
-- Conversation snapshots with text, pasted screenshots, dropped image files, and uploaded images.
-- Per-record notes. The note becomes the human-readable label in the left-side saved conversation shortcuts.
-- Per-record upload. Each saved black box can be uploaded to FOC independently.
-- Local cache cleanup after upload. The app removes the full local conversation snapshot after a PieceCID is returned, while keeping the note and PieceCID index.
-- Restore by PieceCID. A sealed conversation can be downloaded from Filecoin and loaded back into the chat as context.
-- OpenAI-compatible model switching. Add API URL and API key, load available models, choose a model, then save and switch between model configs.
+## Current Features
 
-## Filecoin Mechanism
+- MetaMask browser wallet connection.
+- MetaMask reconnect requests account permissions again so users can switch accounts after disconnecting.
+- Floating status card that stays visible in the top-right corner while scrolling.
+- Official Filecoin Onchain Cloud icon in the header and upload buttons.
+- Wallet-scoped local drafts.
+- Unuploaded drafts reappear after reconnecting the same wallet.
+- Uploaded/sealed conversations are not auto-loaded on wallet connect.
+- Restore by PieceCID through `Restore Context`.
+- Wallet-scoped uploaded record index with note and PieceCID for later restore.
+- Uploaded records are paginated in the Restore panel, with 5, 10, or 20 records per page.
+- Restored context must receive new messages before it can be saved as a new black box.
+- Per-record notes for saved black boxes.
+- Left-side saved conversation shortcuts, using the note as the button label.
+- Per-record `Upload to FOC`.
+- Batch `Upload All Drafts` for all unuploaded local drafts.
+- FOC upload can run in the background while the user continues chatting, saving, or starting a new conversation.
+- `Use as Context` and uploaded record restore remain clickable during background upload.
+- Unuploaded local drafts can be deleted from `Saved Black Boxes`.
+- Full local conversation snapshot removal after upload.
+- PieceCID hover-copy buttons with `Copied!` feedback.
+- Text chat with assistant waiting state while the selected model replies.
+- `Enter` to send and `Shift+Enter` for a newline.
+- Screenshot paste directly into the text box.
+- Drag-and-drop image files into the text box.
+- Fallback `Add images` file picker.
+- OpenAI-compatible model configuration.
+- Load model list from API URL + API key.
+- Switch between saved model configs.
+- Local demo reply when no AI model is configured.
 
-The Filecoin primitive is visible in the main loop:
+## AI Model Setup
 
-- A conversation becomes a `conversation-1` JSON capsule.
-- The capsule is uploaded through Synapse SDK using the browser wallet.
-- The returned PieceCID is the durable handle for the saved conversation.
-- The app can restore the full conversation from that PieceCID.
-- After sealing, the browser keeps only a wallet-scoped index record, not the full local conversation cache.
+The model panel supports OpenAI-compatible APIs.
+
+1. Enter API URL, for example:
+
+```text
+https://api.openai.com/v1
+```
+
+2. Enter API key.
+3. Click `Load Models`.
+4. Select a model from the dropdown.
+5. Click `Add Model`.
+6. Click `Use` on any saved model config to switch.
+
+The saved model name is the selected model name. There is no separate model remark field.
+
+API keys are stored only in browser local storage for this prototype. They are not written to project files and should not be committed to GitHub.
+
+## Filecoin / FOC Flow
+
+When a saved black box is uploaded:
+
+1. The conversation becomes a `conversation-1` JSON capsule.
+2. The browser wallet signs the Synapse/Filecoin flow.
+3. Synapse uploads the capsule to Filecoin Onchain Cloud.
+4. The UI shows upload lifecycle events.
+5. Once a PieceCID is returned, the record becomes FOC-sealed.
+6. The full local conversation snapshot is removed.
+7. The note and PieceCID remain visible in the current session.
+8. The wallet-scoped uploaded record index keeps the note and PieceCID for later restore.
+9. On a future session, the sealed conversation must be restored by PieceCID.
+
+This means the app separates local drafts from sealed Filecoin memory:
+
+```text
+Unuploaded draft = local wallet-scoped cache
+Uploaded black box = Filecoin memory, restored by PieceCID
+```
+
+## Browser Storage
+
+Saved data is scoped by wallet address.
+
+Local draft index:
+
+```text
+agent-black-box:conversation-index:<wallet>
+```
+
+Full local draft snapshot:
+
+```text
+agent-black-box:conversation-snapshot:<wallet>:<conversationId>
+```
+
+After upload succeeds, the full `conversation-snapshot:<wallet>:<conversationId>` entry is removed.
+The lightweight wallet index may retain note and PieceCID records so the Restore panel can show uploaded records without loading the full conversation.
+
+AI model configs:
+
+```text
+agent-black-box:ai-model-configs
+agent-black-box:active-ai-model-config
+```
+
+These model configs live in browser local storage. They are not part of the repository and are not included in Git commits.
+
+To verify that no full conversation cache remains:
+
+```js
+Object.keys(localStorage).filter((key) =>
+  key.startsWith("agent-black-box:conversation-snapshot:")
+);
+```
+
+## Wallet Behavior
+
+- Connecting a wallet loads only that wallet's unuploaded local drafts.
+- Connecting a wallet does not auto-load sealed FOC conversations.
+- Connecting a wallet can show lightweight uploaded records with note and PieceCID.
+- Disconnecting a wallet clears the current visible session state.
+- Unuploaded drafts are still available when reconnecting the same wallet.
+- Sealed conversations must be restored from Filecoin by PieceCID.
+- Restoring a sealed conversation alone does not create a new saveable record; continue the conversation first.
 
 ## Local Setup
 
@@ -50,58 +151,7 @@ http://127.0.0.1:3000
 
 The app uses MetaMask in the browser for Filecoin transactions. Server-side private keys are disabled.
 
-When checking production builds locally, stop `npm run dev` before running `npm run build`. Next.js dev and build modes both write to `.next`, so running them at the same time can corrupt local generated artifacts.
-
-## AI Model Setup
-
-The AI model panel supports OpenAI-compatible APIs.
-
-1. Enter API URL, for example:
-
-```text
-https://api.openai.com/v1
-```
-
-2. Enter API key.
-3. Click `Load Models`.
-4. Choose a model from the dropdown.
-5. Click `Add Model`.
-6. Click `Use` on any saved model config to switch.
-
-API keys are stored only in browser local storage for the local prototype. Do not commit keys to GitHub.
-
-## Chat Input
-
-- Press `Enter` to send.
-- Press `Shift+Enter` to insert a newline.
-- Paste a screenshot directly into the text box.
-- Drag image files into the text box.
-- `Add images` remains as a fallback file picker.
-
-## Browser Storage
-
-Saved data is scoped by wallet address.
-
-Index records:
-
-```text
-agent-black-box:conversation-index:<wallet>
-```
-
-Full local conversation snapshots before upload:
-
-```text
-agent-black-box:conversation-snapshot:<wallet>:<conversationId>
-```
-
-After upload succeeds, the `conversation-snapshot:<wallet>:<conversationId>` entry is removed. The index keeps the note, PieceCID, message count, image count, and display metadata.
-
-AI model configs:
-
-```text
-agent-black-box:ai-model-configs
-agent-black-box:active-ai-model-config
-```
+When checking production builds locally, stop `npm run dev` before running `npm run build`. Next.js dev and build modes both write to `.next`, so running them at the same time can corrupt generated artifacts.
 
 ## App Routes
 
@@ -114,22 +164,25 @@ agent-black-box:active-ai-model-config
   - `POST /api/verify-capsule`
   - `GET /api/run-log`
 
-## 60-90 Second Demo Script
+## Demo Script
 
-1. Open the app and explain the mechanism: the product saves a useful conversation as a black box, then optionally seals it to Filecoin.
+1. Open the app and explain the black box mechanism.
 2. Connect MetaMask.
-3. Add an AI model config: API URL, API key, `Load Models`, select one model, `Add Model`, then `Use`.
-4. Send a message. Paste or drag in an image to show multimodal input.
-5. Click `Save Black Box`.
-6. In `Saved Black Boxes`, edit the note for that single record.
-7. Click `Upload to FOC`.
-8. Show the returned PieceCID and copy button.
-9. Point out that local conversation cache is removed after upload.
-10. Click `Use as Context` or paste the PieceCID into `Restore Context` to restore the conversation from Filecoin.
+3. Add an AI model: API URL, API key, `Load Models`, select a model, `Add Model`, then `Use`.
+4. Send a message and show the assistant waiting state.
+5. Paste a screenshot or drag an image into the text box.
+6. Click `Save Black Box`.
+7. Edit the note on that saved record.
+8. Click `Upload to FOC`.
+9. Copy the returned PieceCID.
+10. Point out that full local conversation cache is removed after upload.
+11. Paste the PieceCID into `Restore Context`.
+12. Restore the conversation from Filecoin and use it as context.
 
 ## Demo Notes
 
-- This is intentionally not a cloud drive. Filecoin is the memory mechanism: the PieceCID is the durable handle for an AI conversation.
+- This is intentionally not a cloud drive.
+- Filecoin is the memory mechanism: the PieceCID restores an AI conversation.
 - For hackathon demos, use small images because the MVP stores images as data URLs inside the JSON conversation capsule.
 - A production version should upload large images as separate Filecoin objects and reference their PieceCIDs inside the conversation capsule.
 - If no AI model is configured, the UI still works with a local demo reply so Filecoin save/upload/restore can be demonstrated.

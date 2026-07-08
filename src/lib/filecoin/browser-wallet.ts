@@ -48,6 +48,7 @@ export function hasInjectedWallet() {
 
 export async function connectBrowserWallet(): Promise<BrowserWalletState> {
   const provider = getEthereumProvider();
+  await requestFreshAccountPermission(provider);
   await provider.request({ method: "eth_requestAccounts" });
   await ensureTargetChain(provider);
   const accounts = (await provider.request({ method: "eth_accounts" })) as Address[];
@@ -63,6 +64,21 @@ export async function connectBrowserWallet(): Promise<BrowserWalletState> {
       name: targetNetwork.name
     }
   };
+}
+
+async function requestFreshAccountPermission(provider: EIP1193Provider) {
+  try {
+    await provider.request({
+      method: "wallet_requestPermissions",
+      params: [{ eth_accounts: {} }]
+    });
+  } catch (error) {
+    if (isUnsupportedWalletMethod(error)) {
+      return;
+    }
+
+    throw error;
+  }
 }
 
 export async function createBrowserSynapseClient() {
@@ -237,4 +253,12 @@ function toHexChainId(chainId: number) {
 
 function isUnknownChainError(error: unknown) {
   return typeof error === "object" && error != null && "code" in error && error.code === 4902;
+}
+
+function isUnsupportedWalletMethod(error: unknown) {
+  if (typeof error !== "object" || error == null || !("code" in error)) {
+    return false;
+  }
+
+  return error.code === -32601 || error.code === -32603;
 }

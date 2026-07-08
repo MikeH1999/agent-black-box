@@ -61,12 +61,17 @@ const activeAiModelConfigKey = "agent-black-box:active-ai-model-config";
 
 export function AgentConsole() {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [pendingAssistantId, setPendingAssistantId] = useState<string | null>(null);
+  const [lastPersistedMessageSignature, setLastPersistedMessageSignature] = useState("");
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<ConversationImage[]>([]);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [note, setNote] = useState("");
   const [savedSnapshot, setSavedSnapshot] = useState<ConversationSnapshot | null>(null);
   const [blackBoxes, setBlackBoxes] = useState<BlackBoxRecord[]>([]);
+  const [uploadedRecords, setUploadedRecords] = useState<BlackBoxRecord[]>([]);
+  const [uploadedRecordsPage, setUploadedRecordsPage] = useState(0);
+  const [uploadedRecordsPageSize, setUploadedRecordsPageSize] = useState(5);
   const [restorePieceCid, setRestorePieceCid] = useState("");
   const [contextLabel, setContextLabel] = useState<string | null>(null);
   const [sealedReceipt, setSealedReceipt] = useState<FilecoinReceipt | null>(null);
@@ -94,15 +99,20 @@ export function AgentConsole() {
   useEffect(() => {
     if (walletAccount == null) {
       setBlackBoxes([]);
+      setUploadedRecords([]);
+      setSavedSnapshot(null);
+      setContextLabel(null);
       return;
     }
 
-    const stored = window.localStorage.getItem(getBlackBoxIndexKey(walletAccount));
-    if (stored != null) {
-      setBlackBoxes(JSON.parse(stored) as BlackBoxRecord[]);
-    } else {
-      setBlackBoxes([]);
-    }
+    const records = loadBlackBoxIndex(walletAccount);
+    const localDrafts = records.filter((record) => record.pieceCid == null);
+    setUploadedRecords(records.filter((record) => record.pieceCid != null));
+    setBlackBoxes((current) => {
+      const restoredOrCurrent = current.filter((record) => record.pieceCid != null);
+      const restoredIds = new Set(restoredOrCurrent.map((record) => record.id));
+      return [...restoredOrCurrent, ...localDrafts.filter((record) => !restoredIds.has(record.id))].slice(0, 12);
+    });
   }, [walletAccount]);
 
   useEffect(() => {
@@ -128,9 +138,23 @@ export function AgentConsole() {
   }, [busyStartedAt]);
 
   const isBusy = activeAction != null;
+  const isUploadBusy = activeAction === "upload";
+  const isBlockingBusy = activeAction != null && activeAction !== "upload";
   const imageCount = useMemo(() => messages.reduce((total, message) => total + message.images.length, 0), [messages]);
+  const currentMessageSignature = useMemo(() => messages.map((message) => message.id).join("|"), [messages]);
+  const hasUnpersistedMessages = messages.length > 0 && currentMessageSignature !== lastPersistedMessageSignature;
+  const localDraftCount = useMemo(() => blackBoxes.filter((record) => record.pieceCid == null).length, [blackBoxes]);
+  const uploadedRecordsPageCount = Math.max(1, Math.ceil(uploadedRecords.length / uploadedRecordsPageSize));
+  const visibleUploadedRecords = uploadedRecords.slice(
+    uploadedRecordsPage * uploadedRecordsPageSize,
+    uploadedRecordsPage * uploadedRecordsPageSize + uploadedRecordsPageSize
+  );
   const statusDetail = getStatusDetail(activeAction);
   const activeAiConfig = aiConfigs.find((config) => config.id === activeAiConfigId) ?? null;
+
+  useEffect(() => {
+    setUploadedRecordsPage((current) => Math.min(current, uploadedRecordsPageCount - 1));
+  }, [uploadedRecordsPageCount]);
 
   async function connectWallet() {
     setStatus("Connecting MetaMask");
@@ -145,9 +169,19 @@ export function AgentConsole() {
     setWallet(null);
     setHealth(null);
     setShowHealthPopover(false);
+    setMessages([]);
+    setPendingAssistantId(null);
+    setLastPersistedMessageSignature("");
+    setDraft("");
+    setAttachments([]);
+    setNote("");
     setBlackBoxes([]);
+    setUploadedRecords([]);
     setSavedSnapshot(null);
+    setSealedReceipt(null);
+    setUploadEvents([]);
     setContextLabel(null);
+    setRestorePieceCid("");
     setError(null);
     setStatus("Ready");
   }
@@ -185,20 +219,41 @@ export function AgentConsole() {
       createdAt: now
     };
     const nextMessages = [...messages, userMessage];
+    const pendingAssistant: ConversationMessage = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: activeAiConfig == null ? "Preparing local demo reply..." : `Waiting for ${activeAiConfig.model}...`,
+      images: [],
+      createdAt: new Date().toISOString()
+    };
 
-    setMessages(nextMessages);
+    setPendingAssistantId(pendingAssistant.id);
+    setMessages([...nextMessages, pendingAssistant]);
     setDraft("");
     setAttachments([]);
     setSavedSnapshot(null);
     setSealedReceipt(null);
     setStatus(activeAiConfig == null ? "Conversation updated" : `Calling ${activeAiConfig.model}`);
 
-    const assistantText =
-      activeAiConfig == null
-        ? buildAssistantReply(cleanDraft, attachments, contextLabel)
-        : await requestAiAnswer(activeAiConfig, nextMessages);
+    let assistantText: string;
+    try {
+      assistantText =
+        activeAiConfig == null
+          ? buildAssistantReply(cleanDraft, attachments, contextLabel)
+          : await requestAiAnswer(activeAiConfig, nextMessages);
+    } catch (cause) {
+      setPendingAssistantId(null);
+      setMessages([
+        ...nextMessages,
+        {
+          ...pendingAssistant,
+          text: "AI reply failed. Check the selected model config and try again."
+        }
+      ]);
+      throw cause;
+    }
     const assistantMessage: ConversationMessage = {
-      id: crypto.randomUUID(),
+      id: pendingAssistant.id,
       role: "assistant",
       text: assistantText,
       images: [],
@@ -206,6 +261,7 @@ export function AgentConsole() {
     };
 
     setMessages([...nextMessages, assistantMessage]);
+    setPendingAssistantId(null);
     setStatus("Conversation updated");
   }
 
@@ -266,9 +322,7 @@ export function AgentConsole() {
     }
 
     event.preventDefault();
-    if (!isBusy) {
-      void runAction(sendMessage, "chat");
-    }
+    void submitChat();
   }
 
   function saveAiConfig() {
@@ -365,11 +419,12 @@ export function AgentConsole() {
     persistSnapshot(storageAccount, snapshot);
     setSavedSnapshot(snapshot);
     upsertBlackBoxRecord(createRecord(snapshot, null));
+    setLastPersistedMessageSignature(currentMessageSignature);
     setStatus("Black box saved locally");
   }
 
   function startNewConversation() {
-    if (messages.length > 0) {
+    if (hasUnpersistedMessages) {
       if (walletAccount == null) {
         setError("Connect MetaMask before saving the previous conversation.");
         setStatus("Wallet required");
@@ -383,6 +438,8 @@ export function AgentConsole() {
     }
 
     setMessages([]);
+    setPendingAssistantId(null);
+    setLastPersistedMessageSignature("");
     setDraft("");
     setAttachments([]);
     setNote("");
@@ -390,7 +447,7 @@ export function AgentConsole() {
     setSealedReceipt(null);
     setUploadEvents([]);
     setContextLabel(null);
-    setStatus(messages.length > 0 ? "Previous black box saved locally" : "New conversation ready");
+    setStatus(hasUnpersistedMessages ? "Previous black box saved locally" : "New conversation ready");
   }
 
   async function uploadBlackBoxRecord(record: BlackBoxRecord) {
@@ -428,6 +485,21 @@ export function AgentConsole() {
     setStatus(result.receipt.complete === false ? "Black box submitted; local cache removed" : "Black box sealed; local cache removed");
   }
 
+  async function uploadAllLocalDrafts() {
+    const drafts = blackBoxes.filter((record) => record.pieceCid == null);
+    if (drafts.length === 0) {
+      setStatus("No local drafts to upload");
+      return;
+    }
+
+    for (const [index, record] of drafts.entries()) {
+      setStatus(`Uploading draft ${index + 1}/${drafts.length}`);
+      await uploadBlackBoxRecord(record);
+    }
+
+    setStatus(`Uploaded ${drafts.length} drafts to FOC`);
+  }
+
   async function restoreConversation(pieceCid = restorePieceCid.trim()) {
     if (pieceCid.length === 0) {
       throw new Error("Enter a conversation PieceCID to restore.");
@@ -439,6 +511,7 @@ export function AgentConsole() {
     const storageAccount = await ensureWalletStorageAccount();
     const restored = await restoreWalletBackedConversation(pieceCid);
     setMessages(restored.snapshot.messages);
+    setLastPersistedMessageSignature(restored.snapshot.messages.map((message) => message.id).join("|"));
     setNote(restored.snapshot.note);
     setSavedSnapshot(restored.snapshot);
     setSealedReceipt({
@@ -469,6 +542,7 @@ export function AgentConsole() {
     const localSnapshot = loadLocalSnapshot(storageAccount, record.id);
     if (localSnapshot != null) {
       setMessages(localSnapshot.messages);
+      setLastPersistedMessageSignature(localSnapshot.messages.map((message) => message.id).join("|"));
       setNote(localSnapshot.note);
       setSavedSnapshot(localSnapshot);
       setContextLabel(localSnapshot.title);
@@ -481,7 +555,7 @@ export function AgentConsole() {
 
     if (record.pieceCid != null) {
       setRestorePieceCid(record.pieceCid);
-      await runAction(() => restoreConversation(record.pieceCid ?? ""), "restore");
+      await restoreContextNow(record.pieceCid);
     }
   }
 
@@ -504,6 +578,28 @@ export function AgentConsole() {
     }
   }
 
+  async function submitChat() {
+    if (pendingAssistantId != null) {
+      return;
+    }
+
+    try {
+      await sendMessage();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStatus("Needs attention");
+    }
+  }
+
+  async function restoreContextNow(pieceCid: string) {
+    try {
+      await restoreConversation(pieceCid);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStatus("Needs attention");
+    }
+  }
+
   async function copyToClipboard(value: string) {
     await navigator.clipboard.writeText(value);
     setCopiedValue(value);
@@ -513,18 +609,19 @@ export function AgentConsole() {
   }
 
   function upsertBlackBoxRecord(record: BlackBoxRecord, account = requireWalletStorageAccount()) {
-    setBlackBoxes((current) => {
-      const next = [record, ...current.filter((item) => item.id !== record.id)].slice(0, 12);
-      window.localStorage.setItem(getBlackBoxIndexKey(account), JSON.stringify(next));
-      return next;
-    });
+    const nextIndex = [record, ...loadBlackBoxIndex(account).filter((item) => item.id !== record.id)].slice(0, 24);
+    writeBlackBoxIndex(account, nextIndex);
+    setUploadedRecords(nextIndex.filter((item) => item.pieceCid != null));
+    setBlackBoxes((current) => [record, ...current.filter((item) => item.id !== record.id)].slice(0, 12));
   }
 
   function updateBlackBoxNote(id: string, nextNote: string) {
     const storageAccount = requireWalletStorageAccount();
+    const nextIndex = loadBlackBoxIndex(storageAccount).map((item) => (item.id === id ? { ...item, note: nextNote } : item));
+    writeBlackBoxIndex(storageAccount, nextIndex);
+    setUploadedRecords(nextIndex.filter((item) => item.pieceCid != null));
     setBlackBoxes((current) => {
       const next = current.map((item) => (item.id === id ? { ...item, note: nextNote } : item));
-      window.localStorage.setItem(getBlackBoxIndexKey(storageAccount), JSON.stringify(next));
       return next;
     });
 
@@ -537,6 +634,29 @@ export function AgentConsole() {
       setSavedSnapshot((current) => (current == null ? current : { ...current, note: nextNote }));
       setNote(nextNote);
     }
+  }
+
+  function deleteLocalDraft(record: BlackBoxRecord) {
+    if (record.pieceCid != null) {
+      return;
+    }
+
+    const storageAccount = requireWalletStorageAccount();
+    removeLocalSnapshot(storageAccount, record.id);
+    const nextIndex = loadBlackBoxIndex(storageAccount).filter((item) => item.id !== record.id);
+    writeBlackBoxIndex(storageAccount, nextIndex);
+    setBlackBoxes((current) => {
+      const next = current.filter((item) => item.id !== record.id);
+      return next;
+    });
+    setUploadedRecords(nextIndex.filter((item) => item.pieceCid != null));
+
+    if (savedSnapshot?.conversationId === record.id) {
+      setSavedSnapshot(null);
+      setLastPersistedMessageSignature("");
+    }
+
+    setStatus("Local draft deleted");
   }
 
   function requireWalletStorageAccount() {
@@ -561,7 +681,10 @@ export function AgentConsole() {
     <main className="app-shell">
       <section className="topbar">
         <div>
-          <p className="eyebrow">Filecoin Onchain Cloud</p>
+          <p className="eyebrow">
+            <img className="filecoin-icon" src="/filecoin.svg" alt="" aria-hidden="true" />
+            Filecoin Onchain Cloud
+          </p>
           <h1>Agent Black Box</h1>
         </div>
         <div className="status-stack" aria-live="polite">
@@ -606,7 +729,7 @@ export function AgentConsole() {
                 <p>{walletAccount == null ? "Connect MetaMask to load wallet-scoped conversations." : "No saved conversations."}</p>
               ) : (
                 blackBoxes.map((record) => (
-                  <button type="button" disabled={isBusy} key={record.id} onClick={() => loadBlackBox(record)}>
+                  <button type="button" key={record.id} onClick={() => loadBlackBox(record)}>
                     {record.note.trim().length > 0 ? record.note.trim() : record.title}
                   </button>
                 ))
@@ -623,7 +746,9 @@ export function AgentConsole() {
                   messages.map((message) => (
                     <article className="chat-message" data-role={message.role} key={message.id}>
                       <span>{message.role}</span>
-                      <p>{message.text}</p>
+                      <p data-pending={message.id === pendingAssistantId}>
+                        {message.role === "assistant" ? formatAssistantDisplay(message.text) : message.text}
+                      </p>
                       {message.images.length > 0 ? (
                         <div className="message-images">
                           {message.images.map((image) => (
@@ -670,13 +795,13 @@ export function AgentConsole() {
                   Add images
                   <input accept="image/*" multiple type="file" onChange={(event) => attachImages(event.target.files)} />
                 </label>
-                <button type="button" disabled={isBusy} onClick={() => runAction(sendMessage, "chat")}>
-                  {activeAction === "chat" ? "Thinking" : "Send"}
+                <button type="button" disabled={pendingAssistantId != null} onClick={() => void submitChat()}>
+                  {pendingAssistantId != null ? "Thinking" : "Send"}
                 </button>
-                <button type="button" disabled={messages.length === 0 || walletAccount == null} onClick={saveBlackBox}>
+                <button type="button" disabled={isBlockingBusy || !hasUnpersistedMessages || walletAccount == null} onClick={saveBlackBox}>
                   Save Black Box
                 </button>
-                <button type="button" onClick={startNewConversation}>
+                <button type="button" disabled={isBlockingBusy} onClick={startNewConversation}>
                   New Conversation
                 </button>
               </div>
@@ -760,6 +885,58 @@ export function AgentConsole() {
             </button>
           </div>
           <p className="helper-text">Restore a conversation black box by PieceCID, then continue with it as context.</p>
+          {uploadedRecords.length > 0 ? (
+            <div className="uploaded-records" aria-label="Uploaded PieceCID records">
+              <div className="uploaded-records-heading">
+                <span>Uploaded Records</span>
+                <div>
+                  <label>
+                    Per page
+                    <select
+                      value={uploadedRecordsPageSize}
+                      onChange={(event) => {
+                        setUploadedRecordsPageSize(Number(event.target.value));
+                        setUploadedRecordsPage(0);
+                      }}
+                    >
+                      <option value={5}>5</option>
+                      <option value={10}>10</option>
+                      <option value={20}>20</option>
+                    </select>
+                  </label>
+                  <button type="button" disabled={uploadedRecordsPage === 0} onClick={() => setUploadedRecordsPage((current) => current - 1)}>
+                    Prev
+                  </button>
+                  <small>
+                    {uploadedRecordsPage + 1}/{uploadedRecordsPageCount}
+                  </small>
+                  <button
+                    type="button"
+                    disabled={uploadedRecordsPage >= uploadedRecordsPageCount - 1}
+                    onClick={() => setUploadedRecordsPage((current) => current + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
+              {visibleUploadedRecords.map((record) =>
+                record.pieceCid == null ? null : (
+                  <article key={record.id}>
+                    <div>
+                      <strong>{record.note.trim().length > 0 ? record.note.trim() : record.title}</strong>
+                      <small>
+                        {record.messageCount} messages / {record.imageCount} images
+                      </small>
+                    </div>
+                    <CopyableCode value={record.pieceCid} copied={copiedValue === record.pieceCid} onCopy={copyToClipboard} />
+                    <button type="button" onClick={() => void restoreContextNow(record.pieceCid ?? "")}>
+                      Restore
+                    </button>
+                  </article>
+                )
+              )}
+            </div>
+          ) : null}
         </section>
 
         {error != null ? <div className="error-box">{error}</div> : null}
@@ -767,9 +944,22 @@ export function AgentConsole() {
         <section className="trace-surface">
           <div className="trace-header">
             <h2>Saved Black Boxes</h2>
-            <span>
-              {blackBoxes.length} local records / {messages.length} messages / {imageCount} images
-            </span>
+            <div className="trace-header-actions">
+              <span>
+                {blackBoxes.length} local records / {messages.length} messages / {imageCount} images
+              </span>
+              {localDraftCount > 0 ? (
+                <button
+                  className="foc-button"
+                  type="button"
+                  disabled={isUploadBusy || walletAccount == null}
+                  onClick={() => runAction(uploadAllLocalDrafts, "upload")}
+                >
+                  <img src="/filecoin.svg" alt="" aria-hidden="true" />
+                  <span>{isUploadBusy ? "Uploading" : `Upload All Drafts (${localDraftCount})`}</span>
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {activeAction === "upload" || uploadEvents.length > 0 || sealedReceipt != null ? (
@@ -815,21 +1005,32 @@ export function AgentConsole() {
                   </label>
                   <div className="memory-actions">
                     {record.pieceCid == null ? (
-                      <button
-                        className="primary"
-                        type="button"
-                        disabled={isBusy || walletAccount == null}
-                        onClick={() => runAction(() => uploadBlackBoxRecord(record), "upload")}
-                      >
-                        {activeAction === "upload" ? "Uploading" : "Upload to FOC"}
-                      </button>
+                      <>
+                        <button
+                          className="primary foc-button"
+                          type="button"
+                          disabled={isUploadBusy || walletAccount == null}
+                          onClick={() => runAction(() => uploadBlackBoxRecord(record), "upload")}
+                        >
+                          <img src="/filecoin.svg" alt="" aria-hidden="true" />
+                          <span>{activeAction === "upload" ? "Uploading" : "Upload to FOC"}</span>
+                        </button>
+                        <button
+                          className="danger-button"
+                          type="button"
+                          disabled={isBusy || walletAccount == null}
+                          onClick={() => deleteLocalDraft(record)}
+                        >
+                          Delete Draft
+                        </button>
+                      </>
                     ) : (
                       <>
                         <CopyableCode value={record.pieceCid} copied={copiedValue === record.pieceCid} onCopy={copyToClipboard} />
                         <small>Local conversation cache removed after upload.</small>
                       </>
                     )}
-                    <button type="button" disabled={isBusy} onClick={() => loadBlackBox(record)}>
+                    <button type="button" onClick={() => loadBlackBox(record)}>
                       Use as Context
                     </button>
                   </div>
@@ -907,6 +1108,15 @@ function getBlackBoxIndexKey(account: string) {
   return `${blackBoxIndexKey}:${account}`;
 }
 
+function loadBlackBoxIndex(account: string) {
+  const stored = window.localStorage.getItem(getBlackBoxIndexKey(account));
+  return stored == null ? [] : (JSON.parse(stored) as BlackBoxRecord[]);
+}
+
+function writeBlackBoxIndex(account: string, records: BlackBoxRecord[]) {
+  window.localStorage.setItem(getBlackBoxIndexKey(account), JSON.stringify(records));
+}
+
 function getSnapshotStorageKey(account: string, id: string) {
   return `${blackBoxSnapshotPrefix}${account}:${id}`;
 }
@@ -958,7 +1168,25 @@ async function requestAiAnswer(config: AiModelConfig, messages: ConversationMess
     throw new Error(typeof data.error === "string" ? data.error : JSON.stringify(data.error ?? data));
   }
 
-  return data.answer?.trim() || "The model returned an empty answer.";
+  return normalizeModelAnswer(data.answer?.trim() || "The model returned an empty answer.");
+}
+
+function normalizeModelAnswer(value: string) {
+  return value
+    .replace(/\r\n/g, "\n")
+    .replace(/[ \t]+(#{1,4}\s+)/g, "\n\n$1")
+    .replace(/[ \t]+(\d+\.\s+)/g, "\n\n$1")
+    .replace(/[ \t]+-\s+/g, "\n- ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function formatAssistantDisplay(value: string) {
+  return normalizeModelAnswer(value)
+    .replace(/^#{1,4}\s+/gm, "")
+    .replace(/\*\*/g, "")
+    .replace(/\[ \]\s*/g, "")
+    .trim();
 }
 
 function readFileAsDataUrl(file: File) {
@@ -1066,8 +1294,8 @@ function CopyableCode({
   return (
     <div className="copyable-code">
       <code>{value}</code>
-      <button type="button" onClick={() => onCopy(value)}>
-        {copied ? "Copied" : "Copy"}
+      <button type="button" data-copied={copied} aria-label={copied ? "Copied" : "Copy PieceCID"} onClick={() => onCopy(value)}>
+        <span>{copied ? "Copied!" : "Copy"}</span>
       </button>
     </div>
   );
