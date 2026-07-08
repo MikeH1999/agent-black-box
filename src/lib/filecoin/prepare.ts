@@ -1,6 +1,8 @@
 import type { Synapse } from "@filoz/synapse-sdk";
 import type { Hash, TransactionReceipt } from "viem";
 
+type StorageContexts = Awaited<ReturnType<Synapse["storage"]["createContexts"]>>;
+
 export type PrepareStorageResult = {
   ready: boolean;
   depositNeeded: string;
@@ -11,8 +13,15 @@ export type PrepareStorageResult = {
   } | null;
 };
 
-export async function prepareStorageForBytes(synapse: Synapse, dataSize: bigint): Promise<PrepareStorageResult> {
-  const prepared = await synapse.storage.prepare({ dataSize });
+export async function prepareStorageForBytes(
+  synapse: Synapse,
+  dataSize: bigint,
+  contexts?: StorageContexts
+): Promise<PrepareStorageResult> {
+  const prepared = await synapse.storage.prepare({
+    dataSize,
+    ...(contexts == null ? {} : { context: contexts })
+  });
 
   if (prepared.transaction == null) {
     return {

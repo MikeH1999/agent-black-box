@@ -511,7 +511,12 @@ export function AgentConsole() {
     const storageAccount = requireWalletStorageAccount();
     const localSnapshot = loadLocalSnapshot(storageAccount, record.id);
     if (localSnapshot == null) {
-      throw new Error("This black box has no local conversation cache. Restore it from FOC instead.");
+      if (record.pieceCid != null) {
+        await restoreContextNow(record.pieceCid);
+        return;
+      }
+
+      throw new Error("This local draft is missing its browser cache. Save the conversation again before uploading it to FOC.");
     }
 
     const snapshotWithCurrentNote: ConversationSnapshot = {
@@ -653,7 +658,10 @@ export function AgentConsole() {
     if (record.pieceCid != null) {
       setRestorePieceCid(record.pieceCid);
       await restoreContextNow(record.pieceCid);
+      return;
     }
+
+    throw new Error("This local draft is missing its browser cache. Save the conversation again before using it as context.");
   }
 
   async function runAction(action: () => Promise<void>, actionName: Exclude<ActiveAction, null>) {
@@ -691,6 +699,15 @@ export function AgentConsole() {
   async function restoreContextNow(pieceCid: string) {
     try {
       await restoreConversation(pieceCid);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setStatus("Needs attention");
+    }
+  }
+
+  async function useBlackBoxAsContext(record: BlackBoxRecord) {
+    try {
+      await loadBlackBox(record);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
       setStatus("Needs attention");
@@ -1155,8 +1172,8 @@ export function AgentConsole() {
                         <small>Local conversation cache removed after upload.</small>
                       </>
                     )}
-                    <button type="button" onClick={() => loadBlackBox(record)}>
-                      Use as Context
+                    <button type="button" onClick={() => void useBlackBoxAsContext(record)}>
+                      {record.pieceCid == null ? "Use as Context" : "Restore from FOC"}
                     </button>
                   </div>
                 </article>

@@ -3,6 +3,12 @@ import { prepareStorageForBytes } from "@/lib/filecoin/prepare";
 
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+const datasetMetadata = {
+  app: "agent-black-box"
+};
+const configuredProviderIds = parseProviderIds(
+  process.env.NEXT_PUBLIC_FOC_PROVIDER_IDS ?? (process.env.NEXT_PUBLIC_FILECOIN_NETWORK === "mainnet" ? "" : "2,9")
+);
 
 export type JsonUploadLifecycleEvent =
   | {
@@ -86,7 +92,14 @@ export async function uploadJsonPayload(
 ): Promise<JsonUploadReceipt> {
   const text = JSON.stringify(value, null, 2);
   const data = textEncoder.encode(text);
-  await prepareStorageForBytes(synapse, BigInt(data.byteLength));
+  const contexts =
+    configuredProviderIds.length === 0
+      ? undefined
+      : await synapse.storage.createContexts({
+          providerIds: configuredProviderIds,
+          metadata: datasetMetadata
+        });
+  await prepareStorageForBytes(synapse, BigInt(data.byteLength), contexts);
   let submittedResolved = false;
   let resolveSubmitted: ((receipt: JsonUploadReceipt) => void) | null = null;
   let rejectSubmitted: ((error: Error) => void) | null = null;
@@ -96,9 +109,8 @@ export async function uploadJsonPayload(
   });
 
   const uploadPromise = synapse.storage.upload(data, {
-    metadata: {
-      app: "agent-black-box"
-    },
+    ...(contexts == null ? {} : { contexts }),
+    metadata: datasetMetadata,
     pieceMetadata: metadata,
     callbacks: {
       onProgress(bytesUploaded) {
@@ -223,4 +235,12 @@ export async function downloadJsonPayload(synapse: Synapse, pieceCid: string): P
     text,
     size: data.byteLength
   };
+}
+
+function parseProviderIds(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0)
+    .map((item) => BigInt(item));
 }

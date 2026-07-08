@@ -182,10 +182,13 @@ Production environment variables:
 ```text
 NEXT_PUBLIC_FILECOIN_NETWORK=calibration
 NEXT_PUBLIC_FILECOIN_SOURCE=agent-black-box
+NEXT_PUBLIC_FOC_PROVIDER_IDS=2,9
 NEXT_PUBLIC_APP_NAME=Agent Black Box
 ```
 
 Use `calibration` for public demos and hackathon judging. Switch to `mainnet` only when you want real mainnet Filecoin usage.
+
+`NEXT_PUBLIC_FOC_PROVIDER_IDS` is optional but recommended for hosted demos. On calibration, the app defaults to `2,9` so uploads do not depend on SDK smart provider selection when endorsed provider health checks are flaky. Override it with a comma-separated provider list if the active FOC providers change.
 
 These are public client-side variables. Do not add private keys. The app uses the visitor's MetaMask wallet in the browser for Filecoin actions. AI model API keys are entered by each visitor in their own browser and stored locally for this prototype.
 
