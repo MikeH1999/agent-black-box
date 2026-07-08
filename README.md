@@ -1,3 +1,6 @@
+https://x.com/Mikeh0321/status/2074792145232568495?s=20
+@FilecoinTLDR
+@Filecoin
 # Agent Black Box
 
 Agent Black Box is a Filecoin Onchain Cloud prototype for turning valuable AI conversations into portable, restorable memory capsules.
