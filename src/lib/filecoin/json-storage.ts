@@ -1,4 +1,5 @@
 import type { Synapse } from "@filoz/synapse-sdk";
+import type { Hash } from "viem";
 import { prepareStorageForBytes } from "@/lib/filecoin/prepare";
 
 const textEncoder = new TextEncoder();
@@ -11,6 +12,7 @@ const configuredProviderIds = selectUploadProviderIds(
 );
 const uploadTimeoutMs = parsePositiveInteger(process.env.NEXT_PUBLIC_FOC_UPLOAD_TIMEOUT_MS, 180_000);
 const downloadTimeoutMs = parsePositiveInteger(process.env.NEXT_PUBLIC_FOC_DOWNLOAD_TIMEOUT_MS, 60_000);
+const chainReceiptTimeoutMs = parsePositiveInteger(process.env.NEXT_PUBLIC_FOC_CHAIN_RECEIPT_TIMEOUT_MS, 60_000);
 
 export type JsonUploadLifecycleEvent =
   | {
@@ -199,27 +201,32 @@ export async function uploadJsonPayload(
     }
   }).finally(uploadTimeout.cancel);
 
-  const fullReceiptPromise = uploadPromise.then((result) => ({
-    pieceCid: result.pieceCid.toString(),
-    size: result.size,
-    requestedCopies: result.requestedCopies,
-    complete: result.complete,
-    chainTransactions: [...chainTransactions],
-    copies: result.copies.map((copy) => ({
-      providerId: copy.providerId.toString(),
-      dataSetId: copy.dataSetId.toString(),
-      pieceId: copy.pieceId.toString(),
-      role: copy.role,
-      retrievalUrl: copy.retrievalUrl,
-      isNewDataSet: copy.isNewDataSet
-    })),
-    failedAttempts: result.failedAttempts.map((attempt) => ({
-      providerId: attempt.providerId.toString(),
-      role: attempt.role,
-      error: attempt.error,
-      explicit: attempt.explicit
-    }))
-  }));
+  const fullReceiptPromise = uploadPromise.then(async (result) => {
+    const receipt: JsonUploadReceipt = {
+      pieceCid: result.pieceCid.toString(),
+      size: result.size,
+      requestedCopies: result.requestedCopies,
+      complete: result.complete,
+      chainTransactions: [...chainTransactions],
+      copies: result.copies.map((copy) => ({
+        providerId: copy.providerId.toString(),
+        dataSetId: copy.dataSetId.toString(),
+        pieceId: copy.pieceId.toString(),
+        role: copy.role,
+        retrievalUrl: copy.retrievalUrl,
+        isNewDataSet: copy.isNewDataSet
+      })),
+      failedAttempts: result.failedAttempts.map((attempt) => ({
+        providerId: attempt.providerId.toString(),
+        role: attempt.role,
+        error: attempt.error,
+        explicit: attempt.explicit
+      }))
+    };
+
+    await verifyChainTransactions(synapse, receipt.chainTransactions);
+    return receipt;
+  });
 
   fullReceiptPromise
     .then((receipt) => {
@@ -302,5 +309,43 @@ function withTimeout<T>(promise: Promise<T>, milliseconds: number, reason: strin
     if (timeout != null) {
       globalThis.clearTimeout(timeout);
     }
+  });
+}
+
+async function verifyChainTransactions(synapse: Synapse, transactions: JsonUploadReceipt["chainTransactions"]) {
+  if (transactions.length === 0) {
+    throw new Error("FOC did not return a chain transaction for this PieceCID.");
+  }
+
+  await Promise.all(
+    transactions.map((transaction) =>
+      withTimeout(
+        waitForChainReceipt(synapse, transaction.transaction as Hash),
+        chainReceiptTimeoutMs,
+        `FOC transaction ${transaction.transaction} was not visible on-chain.`
+      )
+    )
+  );
+}
+
+async function waitForChainReceipt(synapse: Synapse, hash: Hash) {
+  const startedAt = Date.now();
+
+  for (;;) {
+    try {
+      return await synapse.client.getTransactionReceipt({ hash });
+    } catch (error) {
+      if (Date.now() - startedAt >= chainReceiptTimeoutMs) {
+        throw error;
+      }
+
+      await sleep(2_000);
+    }
+  }
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, milliseconds);
   });
 }
