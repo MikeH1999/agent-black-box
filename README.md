@@ -6,7 +6,7 @@ https://x.com/Mikeh0321/status/2074792145232568495?s=20
 
 # Important Information
 
-You can claim Tfil and usdtfil test tokens at the following two locations:
+You can claim Tfil and usdfc test tokens at the following two locations:
 
 # tfil：
 
