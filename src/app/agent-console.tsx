@@ -674,6 +674,7 @@ export function AgentConsole() {
       return;
     }
 
+    setError(null);
     setActiveAction(actionName);
     setBusyStartedAt(Date.now());
     setElapsedSeconds(0);
