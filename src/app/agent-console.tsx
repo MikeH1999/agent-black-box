@@ -1121,6 +1121,9 @@ export function AgentConsole() {
                     copied={copiedKey === `receipt-${sealedReceipt.pieceCid}`}
                     onCopy={copyToClipboard}
                   />
+                  {sealedReceipt.chainTransactions?.map((item) => (
+                    <p key={`${item.providerId}-${item.transaction}`}>Chain tx: {item.transaction}</p>
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -1436,7 +1439,7 @@ function formatUploadEvent(event: JsonUploadLifecycleEvent) {
     case "stored":
       return `stored ${shortCid(event.pieceCid)} on provider ${event.providerId}`;
     case "pieces-added":
-      return `message submitted: ${shortHash(event.transaction)}`;
+      return `message submitted: ${event.transaction}`;
     case "pieces-confirmed":
       return `message confirmed in dataset ${event.dataSetId}`;
     case "copy-complete":
@@ -1450,14 +1453,6 @@ function formatUploadEvent(event: JsonUploadLifecycleEvent) {
 
 function shortCid(value: string | undefined) {
   if (value == null || value.length <= 18) {
-    return value ?? "";
-  }
-
-  return `${value.slice(0, 10)}...${value.slice(-6)}`;
-}
-
-function shortHash(value: string | undefined) {
-  if (value == null || value.length <= 16) {
     return value ?? "";
   }
 
