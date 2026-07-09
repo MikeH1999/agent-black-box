@@ -445,7 +445,7 @@ export function AgentConsole() {
       }));
       setStatus(models.length === 0 ? "No models returned" : `Loaded ${models.length} models`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(formatErrorMessage(cause));
       setStatus("Model load failed");
     } finally {
       setIsLoadingModels(false);
@@ -680,7 +680,7 @@ export function AgentConsole() {
     try {
       await action();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(formatErrorMessage(cause));
       setStatus("Needs attention");
     } finally {
       setActiveAction(null);
@@ -696,7 +696,7 @@ export function AgentConsole() {
     try {
       await sendMessage();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(formatErrorMessage(cause));
       setStatus("Needs attention");
     }
   }
@@ -705,7 +705,7 @@ export function AgentConsole() {
     try {
       await restoreConversation(pieceCid);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(formatErrorMessage(cause));
       setStatus("Needs attention");
     }
   }
@@ -714,7 +714,7 @@ export function AgentConsole() {
     try {
       await loadBlackBox(record);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      setError(formatErrorMessage(cause));
       setStatus("Needs attention");
     }
   }
@@ -1457,6 +1457,66 @@ function shortCid(value: string | undefined) {
   }
 
   return `${value.slice(0, 10)}...${value.slice(-6)}`;
+}
+
+function formatErrorMessage(cause: unknown) {
+  if (isWalletUserRejectedError(cause)) {
+    return "Wallet request was cancelled. No upload was started.";
+  }
+
+  if (cause instanceof Error && cause.message.trim().length > 0) {
+    return cause.message;
+  }
+
+  if (typeof cause === "string") {
+    return cause;
+  }
+
+  if (typeof cause === "object" && cause != null) {
+    const message = getStringProperty(cause, "message") ?? getStringProperty(cause, "reason") ?? getStringProperty(cause, "shortMessage");
+    if (message != null && message.trim().length > 0) {
+      return message;
+    }
+
+    try {
+      return JSON.stringify(cause);
+    } catch {
+      return "Something went wrong. Please try again.";
+    }
+  }
+
+  return "Something went wrong. Please try again.";
+}
+
+function isWalletUserRejectedError(cause: unknown) {
+  if (typeof cause !== "object" || cause == null) {
+    return false;
+  }
+
+  const code = getNumberProperty(cause, "code") ?? getNumberProperty(cause, "cause.code") ?? getNumberProperty(cause, "details.code");
+  const message = `${getStringProperty(cause, "message") ?? ""} ${getStringProperty(cause, "reason") ?? ""} ${getStringProperty(cause, "shortMessage") ?? ""}`.toLowerCase();
+
+  return code === 4001 || message.includes("user rejected") || message.includes("user denied") || message.includes("cancelled") || message.includes("canceled");
+}
+
+function getStringProperty(value: unknown, path: string) {
+  const found = getNestedProperty(value, path);
+  return typeof found === "string" ? found : null;
+}
+
+function getNumberProperty(value: unknown, path: string) {
+  const found = getNestedProperty(value, path);
+  return typeof found === "number" ? found : null;
+}
+
+function getNestedProperty(value: unknown, path: string) {
+  return path.split(".").reduce<unknown>((current, key) => {
+    if (typeof current !== "object" || current == null || !(key in current)) {
+      return null;
+    }
+
+    return (current as Record<string, unknown>)[key];
+  }, value);
 }
 
 function getStatusDetail(activeAction: ActiveAction) {
