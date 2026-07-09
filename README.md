@@ -1,6 +1,26 @@
 https://x.com/Mikeh0321/status/2074792145232568495?s=20
+
 @FilecoinTLDR
+
 @Filecoin
+
+# Important Information
+
+You can claim Tfil and usdtfil test tokens at the following two locations:
+
+# tfil：
+
+https://faucet.calibnet.chainsafe-fil.io/funds.html
+
+https://forest-explorer.chainsafe.dev/faucet/calibnet
+
+https://beryx.zondax.ch/faucet/
+
+# usdfc：
+
+https://forest-explorer.chainsafe.dev/faucet/calibnet_usdfc
+
+
 # Agent Black Box
 
 Agent Black Box is a Filecoin Onchain Cloud prototype for turning valuable AI conversations into portable, restorable memory capsules.
